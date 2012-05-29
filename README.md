@@ -9,4 +9,3 @@ The flash player to be injected must has the version of "11.2.202.233 standalone
 
 To compile the source code, you should have the "visual studio 2010" installed , and the "Detours Express 3.0" library which can be downloaded from http://research.microsoft.com/en-us/projects/detours/ .
 
-
