@@ -1,92 +1,17 @@
-﻿#include <Windows.h>
+﻿#define NOMINMAX
+#include <Windows.h>
 #include <detours.h>
 #include <iostream>
 #include <sstream>
 #include <iomanip>
 #include <stdint.h>
+#include <algorithm>
+
+#include "mybuffer.h"
+
 
 #pragma comment( lib, "detours.lib" )
-
-//only used for detours inject
-__declspec(dllexport) void __cdecl dummyfunc(void){
-
-}
-
-typedef void (*LoggingFunction)(const char*);
-void (*redirectLogOutput)(LoggingFunction func)=(void (*)(LoggingFunction func))0x008683A0;
-int (__cdecl *VMPI_log)(const char *lpOutputString)=(int  (__cdecl *)(const char *lpOutputString))0x0083AC00;
-
-static FILE* logfile;
-
-
-static bool DoRawLog(char** buf, int* size, const char* format, ...) {
-	va_list ap;
-	va_start(ap, format);
-	int n = vsnprintf(*buf, *size, format, ap);
-	va_end(ap);
-	if (n < 0 || n > *size) return false;
-	*size -= n;
-	*buf += n;
-	return true;
-}
-
-// Helper for RawLog__ below.
-inline static bool VADoRawLog(char** buf, int* size,
-	const char* format, va_list ap) {
-		int n = vsnprintf(*buf, *size, format, ap);
-		if (n < 0 || n > *size) return false;
-		*size -= n;
-		*buf += n;
-		return true;
-}
-
-const char* const_basename(const char* filepath) {
-	const char* base = strrchr(filepath, '/');
-	if (!base)
-		base = strrchr(filepath, '\\');
-	return base ? (base+1) : filepath;
-}
-
-
-void mylog(const char* file, int line,  const char* format,...)
-{
-
-	__time64_t long_time;
-	_time64( &long_time ); 
-	struct tm t;
-	errno_t err = _localtime64_s( &t, &long_time );
-	if (err){
-		VMPI_log("cannot get current time");
-		 return;
-	}
-	static const int kLogBufSize = 4096;
-	char buffer[kLogBufSize];
-	memset(buffer,0,sizeof(buffer));
-	int size = sizeof(buffer);
-	char* buf = buffer;
-	/*DoRawLog(&buf, &size, "%02d%02d %02d:%02d:%02d %5u %s:%d]  ",		
-		1 + t.tm_mon, t.tm_mday, t.tm_hour, t.tm_min, t.tm_sec,		
-		static_cast<unsigned int>(GetCurrentThreadId()),		
-		const_basename(const_cast<char *>(file)), line);*/
-	DoRawLog(&buf, &size, "[%02d%02d %02d:%02d:%02d %5u]  ",		
-		1 + t.tm_mon, t.tm_mday, t.tm_hour, t.tm_min, t.tm_sec,		
-		static_cast<unsigned int>(GetCurrentThreadId()));
-	// Record the position and size of the buffer after the prefix
-	const char* msg_start = buf;
-	const int msg_size = size;
-	va_list ap;
-	va_start(ap, format);
-	bool no_chop = VADoRawLog(&buf, &size, format, ap);
-	va_end(ap);
-	if (no_chop) {
-		DoRawLog(&buf, &size, "\n");
-	} else {
-		DoRawLog(&buf, &size, "LOG ERROR: The Message was too long!\n");
-	}	
-	VMPI_log(buffer);
-}
-
-#define DLOG(...) mylog(__FILE__,__LINE__,__VA_ARGS__)
+FILE* logfile;
 
 static void logToFile(const char* s)
 {
@@ -94,22 +19,51 @@ static void logToFile(const char* s)
 	fflush(logfile);
 }
 
-static void initLogFile(const char* filename){
+void initLogFile(const char* filename){
 	logfile=fopen(filename,"a+");	
-	if(logfile!=NULL)
-		redirectLogOutput(logToFile);
 }
 
-static void closeLogFile(){
-	redirectLogOutput(NULL);
+
+void closeLogFile(){	
 	if(logfile!=NULL)
 		fclose(logfile);
 }
 
+static char hexchar(uint8_t value){
+	static char str[]="0123456789abcdef";
+	if(value>=16) throw std::runtime_error("internal error");
+	return str[value];
+}
+
+static std::string hexBuffer(const uint8_t* buff,int length){
+	std::ostringstream oss;
+	oss<<std::hex<<std::uppercase;
+	oss<<"\"";
+	for(int i=0;i!=length;++i)
+		oss<<hexchar(buff[i]>>4)<<hexchar(buff[i]&0xF);
+	oss<<"\"";
+	return oss.str();
+}
+
+static std::string jsonArray(const uint8_t* buff,int length){
+	std::ostringstream oss;
+	oss<<"[";
+	for(int i=0;i!=length;++i){
+		oss<<(uint32_t)buff[i];
+		if(i!=length-1)
+			oss<<",";
+	}
+	oss<<"]";
+	return oss.str();
+}
 
 
+//only used for detours inject
+__declspec(dllexport) void __cdecl dummyfunc(void){
+
+}
+/*
 char  (__fastcall *oldfunc)(void* pthis,int dummy,const unsigned char *key, int keyType, int direction)=(char  (__fastcall *)(void* pthis,int dummy,const unsigned char *key, int keyType, int direction))0x7AE1E1;
-
 
 class A{
 public:		
@@ -134,233 +88,191 @@ public:
 		}
 		keylength=keylength/8;
 		std::ostringstream oss;
-		oss<<"key="<<std::hex;
-		for(int i=0;i!=keylength;++i){
-			oss<<"0x"<<(int)key[i]<<" ";		
-		}
-		oss<<" direction="<<direction;
+		oss<<"{type:\"key\",data:{key: "<<hexBuffer(key,keylength)<<",direction:"<<direction<<"}}\n";
 		std::string msg=oss.str();
-		DLOG("%s",msg.c_str());		
+		logToFile(msg.c_str());		
 		char ret=oldfunc(this,0,key,keyType,direction);		
+		return ret;
+	}
+};*/
+
+class C00B4F258{
+
+};
+
+char (__fastcall  *oldfunc7A6807)(void* pthis,int dummy,char *dhpublicnumber, unsigned int length)=
+	(char (__fastcall*)(void* pthis,int dummy,char *dhpublicnumber, unsigned int length))0x007A6807;
+	
+class C00B4C8E8{
+public:
+	int vtable;
+	int ref;
+	int unknown1;
+	MyBuffer b1;
+	MyBuffer b2;
+	MyBuffer b3;
+	MyBuffer b4;
+
+	 char func7A6807(char *dhpublicnumber, unsigned int length){
+		int ret=oldfunc7A6807(this,0,dhpublicnumber,length);
+		std::ostringstream oss;
+		oss<<"{type: \"dhinfo\",data: {b4:"<<hexBuffer(this->b4.data,this->b4.length)<<"}}";
+		std::string msg=oss.str();
+		logToFile(msg.c_str());
+		return ret;
+	 }
+};
+
+int (__fastcall  *oldfunc7A17EA)(void* pthis,int dummy,uint8_t *dhpublicnumber, int length, int keyType)=
+	(int (__fastcall  *)(void* pthis,int dummy,uint8_t *dhpublicnumber, int length, int keyType))0x007A17EA;
+
+
+
+class C00B4C820{
+public:
+	int vtable;
+	int ref;
+	C00B4F258* key1;
+	C00B4F258* key2;
+	C00B4C8E8* info;
+	int unknown1;
+	int unknown2;
+	int unknown3;
+	int unknown4;
+	int unknown5;
+	int unknown6;
+	int unknown7;
+	int unknown8;
+	int unknown9;
+	int unknown10;
+	int unknown11;
+	int unknown12;
+	int unknown13;
+	MyBuffer* initiatorNonce;
+	MyBuffer* responderNonce;
+	uint8_t nearNonce[0x20];
+	uint8_t farNonce[0x20];
+	
+
+	char func007A17EA(uint8_t *dhpublicnumber, int length, int keyType){
+		std::ostringstream oss;
+		oss<<"{type: \"secinfo\",data: {dhpublicnumber:"<<jsonArray(dhpublicnumber,length)
+		<<",initiatorCert:"<<jsonArray(this->initiatorNonce->data,this->initiatorNonce->length)
+		<<",responderCert:"<<jsonArray(this->responderNonce->data,this->responderNonce->length)
+		<<",dhprime:"<<jsonArray(this->info->b1.data,this->info->b1.length)
+		<<",dhprivatekey:"<<jsonArray(this->info->b2.data,this->info->b2.length);
+		char ret=oldfunc7A17EA(this,0,dhpublicnumber,length,keyType);
+		oss<<",farNonce:"<<jsonArray(this->farNonce,sizeof(this->farNonce))
+			<<",nearNonce:"<<jsonArray(this->nearNonce,sizeof(this->nearNonce))
+			<<"}}\n";
+		std::string msg=oss.str();
+		logToFile(msg.c_str());
+		
 		return ret;
 	}
 };
 
-class AddressInfo{
-public:
-	int vtable;
-	int ref;
-	sockaddr_in addr;
-};
-
-static std::string printchunk(int chunkType,const unsigned char * packetData, const unsigned char * packetDataEnd){
-	std::ostringstream oss;
-	oss<<"\n\tchunk: type="<<std::hex<<std::uppercase<<"0x"<<chunkType<<", body= ";
-	if(packetData==packetDataEnd)
-		oss<<"empty";
-	else{
-		oss<<std::setfill('0');
-		for(const unsigned char * p=packetData;p!=packetDataEnd;++p){
-			oss<<std::setw(2)<<(int)*p;
-		}
-	}
-	return oss.str();
-}
-
-
-int (__fastcall  *oldfunc7B2DCE)(void* pthis,int dummy,AddressInfo* addrinfo,int sessionid, int arg)=
-	(int (__fastcall  *)(void* pthis,int dummy,AddressInfo* addrinfo,int sessionid, int arg))0x7B2DCE;
-int (__fastcall  *oldfunc7A9357)(void* pthis,int dummy,AddressInfo* addrinfo,int sessionid, int arg)=
-	(int (__fastcall  *)(void* pthis,int dummy,AddressInfo* addrinfo,int sessionid, int arg))0x7A9357;
-
-
-class C00B4F30C{
-	int vtable;
-	int ref;
-	uint8_t * pC00B4C77C;
-public:
-	void newfunc(AddressInfo* addrinfo,int sessionid, int arg){
-		uint8_t flags=*(this->pC00B4C77C+0x344);
-		uint32_t pos=*(this->pC00B4C77C+0x235C);
-		uint32_t remainLength=*(this->pC00B4C77C+0x2354);
-		uint8_t* rdptr=*(uint8_t**)(this->pC00B4C77C+0x2350);
-		rdptr+=pos;		
-		uint8_t* endptr=rdptr+remainLength;
-
-		std::ostringstream oss;		
-		oss<<"received packet from "<<inet_ntoa(addrinfo->addr.sin_addr)<<":"<<ntohs(addrinfo->addr.sin_port)<<",flags=0x"<<std::hex<<(int)flags<<std::dec<<",length="<<remainLength<<",sessionid="<<sessionid;
-		if(flags & 0x8){
-			uint32_t timestamp=*(uint32_t*)(this->pC00B4C77C+0x348);
-			oss<<",timestamp="<<timestamp;
-		}
-		if(flags & 0x4){
-			uint32_t timestampEcho=*(uint32_t*)(this->pC00B4C77C+0x34C);
-			oss<<",timestampEcho="<<timestampEcho;
-		}
-				
-		while(rdptr<endptr){
-			int chunkType=*rdptr;			
-			rdptr++;
-			if(chunkType==0xFF) break;
-			int chunkLength=ntohs(*(uint16_t*)rdptr);
-			rdptr+=2;
-			const unsigned char * old=rdptr;
-			rdptr+=chunkLength;			
-			oss<<printchunk(chunkType,old,rdptr);
-		}
-		std::string msg=oss.str();
-		DLOG("%s",msg.c_str());
-	}
-	int func7B2DCE(AddressInfo* addrinfo,int sessionid, int arg){
-		newfunc(addrinfo,sessionid,arg);
-		return oldfunc7B2DCE(this,0,addrinfo,sessionid,arg);
-	}
-
-	int func7A9357(AddressInfo* addrinfo,int sessionid, int arg){
-		newfunc(addrinfo,sessionid,arg);
-		return oldfunc7A9357(this,0,addrinfo,sessionid,arg);
-	}
-};
 
 class C00AFE190{
 public:
 	int vtable;
 	void* unknown1;
 	char buffer[0x80];
-	int unknown2;
+	int addrlen;
 };
 
-int (__fastcall  *oldfunc5DCFFE)(void* pthis,int dummy,char *buf, int len, C00AFE190* a4)=
-	(int (__fastcall *)(void* pthis,int dummy,char *buf, int len, C00AFE190* a4))0x005DCFFE;
+int (__fastcall  *oldfunc5DCFFE)(void* pthis,int dummy,uint8_t *buf, int len, C00AFE190* a4)=
+	(int (__fastcall *)(void* pthis,int dummy,uint8_t *buf, int len, C00AFE190* a4))0x005DCFFE;
 
+int (__fastcall  *oldfunc5DD07D)(void* pthis,int dummy,uint8_t *buf, int len, C00AFE190* a4)=
+	(int (__fastcall *)(void* pthis,int dummy,uint8_t *buf, int len, C00AFE190* a4))0x005DD07D;
+
+int (__fastcall  *oldfunc5DD293)(void* pthis,int dummy,uint8_t *buf, int len, int port, int addressFamily)=
+	(int (__fastcall *)(void* pthis,int dummy,uint8_t *buf, int len, int port, int addressFamily))0x005DD293;
+
+
+void logerror(const std::string& msg){
+	std::ostringstream oss;
+	oss<<"{type: \"error\",data: {error:\""<<msg<<"\"}}";
+	std::string err=oss.str();
+	logToFile(err.c_str());
+}
 class C00B0C408{
+	int vtable;
+	int ref;
+	int socket;
 public:	
-	 int func5DCFFE(char *buf, int len, C00AFE190* a4){
-		 int ret=oldfunc5DCFFE(this,0,buf,len,a4);
+	int func5DD293(uint8_t *buf, int len, int port, int addressFamily){
+		std::ostringstream oss;
+		oss<<"{type:\"send2\",data:";
+		oss<<"{socket:"<<this->socket<<",port:"<<port<<",addressFamily:"<<addressFamily<<",data: \"";
+		oss<<std::hex<<std::uppercase;
+		for(int i=0;i!=len;++i)
+			oss<<hexchar(buf[i]>>4)<<hexchar(buf[i]&0xF);
+		oss<<"\"}}\n";
+		std::string msg=oss.str();
+		logToFile(msg.c_str());
+		return oldfunc5DD293(this,0,buf,len,port,addressFamily);
+	}
+
+	int func5DD07D(uint8_t *buf, int len, C00AFE190* a4){
+		sockaddr* addr=(sockaddr*)a4->buffer;
+		if(addr->sa_family==AF_INET){
+			sockaddr_in* inaddr=(sockaddr_in*)addr;
+			std::ostringstream oss;
+			oss<<"{type:\"send\",data:";
+			oss<<"{socket:"<<this->socket<<",addr:\""<<inet_ntoa(inaddr->sin_addr)<<"\",port:"<<(unsigned short)ntohs(inaddr->sin_port)<<",data: \"";
+			oss<<std::hex<<std::uppercase;
+			for(int i=0;i!=len;++i)
+				oss<<hexchar(buf[i]>>4)<<hexchar(buf[i]&0xF);
+			oss<<"\"}}\n";
+			std::string msg=oss.str();
+			logToFile(msg.c_str());
+		}else {
+			logerror("Unknown protocol");
+		}	
+		return oldfunc5DD07D(this,0,buf,len,a4);
+	}
+
+	 int func5DCFFE(uint8_t *buf, int len, C00AFE190* a4){
+		 int ret=oldfunc5DCFFE(this,0,buf,len,a4);		 
 		 sockaddr* addr=(sockaddr*)a4->buffer;
 		 if(addr->sa_family==AF_INET){
 			 sockaddr_in* inaddr=(sockaddr_in*)addr;
-			 DLOG("received udp packet from %s:%hd,len=%d",inet_ntoa(inaddr->sin_addr),ntohs(inaddr->sin_port),ret);
+			 std::ostringstream oss;
+			 oss<<"{type:\"recv\",data:";
+			 oss<<"{socket:"<<this->socket<<",addr:\""<<inet_ntoa(inaddr->sin_addr)<<"\",port:"<<(unsigned short)ntohs(inaddr->sin_port)<<",data: \"";
+			 oss<<std::hex<<std::uppercase;
+			 for(int i=0;i!=ret;++i)
+				 oss<<hexchar(buf[i]>>4)<<hexchar(buf[i]&0xF);
+			 oss<<"\"}}\n";
+			 std::string msg=oss.str();
+			 logToFile(msg.c_str());
 		 } else {
-			 DLOG("received udp packet from unknown address,protocol family=%hd",addr->sa_family);
+			 logerror("Unknown protocol");
 		 }				
 		 return ret;
 	 }
 };
 
-static int  (__cdecl *pAVMPI_reserveMemoryRegion)(LPVOID lpAddress, SIZE_T dwSize)=(int  (__cdecl *)(LPVOID lpAddress, SIZE_T dwSize))0x007BDE50;
-int __cdecl myAVMPI_reserveMemoryRegion(LPVOID lpAddress, SIZE_T dwSize){
-	DLOG("hooked AVMPI_reserveMemoryRegion");
-	return pAVMPI_reserveMemoryRegion(lpAddress,dwSize);
-}
 
-char  (__fastcall *oldfunc7A1A22)(void* pthis,int dummy,const unsigned char * packetData, int packetDataLength, unsigned char * dest, int a5)=
-	(char  (__fastcall *)(void* pthis,int dummy,const unsigned char * packetData, int packetDataLength, unsigned char * dest, int a5))0x7A1A22;
-
-char  (__fastcall *oldfunc7A1B9E)(void* pthis,int dummy,int a2, unsigned int a3, const unsigned char * packetData, size_t* packetDataLength)=
-	(char  (__fastcall *)(void* pthis,int dummy,int a2, unsigned int a3, const unsigned char * packetData, size_t* packetDataLength))0x007A1B9E;
-
-class C00B4C820{	
-public:
-	
-
-	static void printPacketInfo(std::ostream& oss,const unsigned char * packetData, int packetDataLength){
-		if(packetDataLength<=0) return;
-		oss<<"length="<<packetDataLength;
-		const unsigned char * rdptr=packetData;
-		const unsigned char * endptr=packetData+packetDataLength;
-		/* dump the whole packet
-		oss<<std::hex;
-		for(const unsigned char * p=rdptr;p!=endptr;++p){
-			oss<<"0x"<<(int)*p<<" ";
-		}
-		oss<<std::dec;*/
-
-		int flags=packetData[0];
-		rdptr++;
-		oss<<" flags="<<std::hex<<"0x"<<flags<<std::dec;
-	
-		if(flags & 0x8){
-			uint16_t timestamp=ntohs(*(uint16_t*)rdptr);
-			rdptr+=2;
-			oss<<" timestamp="<<timestamp;
-		}
-		if(flags & 0x4){
-			uint16_t timestampEcho=ntohs(*(uint16_t*)rdptr);
-			rdptr+=2;
-			oss<<" timestampEcho="<<timestampEcho;
-		}
-		while(rdptr<endptr){
-			int chunkType=*rdptr;			
-			rdptr++;
-			if(chunkType==0xFF) break;
-			int chunkLength=ntohs(*(uint16_t*)rdptr);
-			rdptr+=2;
-			const unsigned char * old=rdptr;
-			rdptr+=chunkLength;
-			oss<<printchunk(chunkType,old,rdptr);
-		}
-	}
-	/*
-	char func7A1B9E(int a2, unsigned int a3, const unsigned char * packetData, size_t* packetDataLength){
-		char ret=oldfunc7A1B9E(this,0,a2,a3,packetData,packetDataLength);
-		std::ostringstream oss;
-		oss<<"catch received data: ";
-		printPacketInfo(oss,packetData,*packetDataLength);		
-		std::string msg=oss.str();
-		DLOG("%s",msg.c_str());
-		return ret;
-	}*/
-	char func7A1A22( const unsigned char * packetData, int packetDataLength, unsigned char * dest, int a5){
-		std::ostringstream oss;
-		oss<<"catch construct packet data: ";
-		printPacketInfo(oss,packetData,packetDataLength);		
-		std::string msg=oss.str();
-		DLOG("%s",msg.c_str());
-		char ret=oldfunc7A1A22(this,0,packetData,packetDataLength,dest,a5);
-		//char ret=0;
-		return ret;
-	}
-};
-
-int (__fastcall *oldsub6047A9)(void* pthis, int dummy,const unsigned char* buff, int length, sockaddr_in *a4, int a5, int a6)
-	=(int (__fastcall *)(void* pthis, int dummy,const unsigned char* buff, int length, sockaddr_in *a4, int a5, int a6))0x6047A9;
-class C00FB30{
-public:
-	int sub6047A9(const unsigned char* buff, int length, sockaddr_in *a4, int a5, int a6){
-		
-		std::ostringstream oss;
-		oss<<"sending packet to "<<inet_ntoa(a4->sin_addr)<<":"<<ntohs(a4->sin_port)<<",type="<<a6;
-		/*<<",data=\n"<<std::hex;
-		for(int i=0;i!=length;++i){
-			oss<<"0x"<<(int)buff[i]<<" ";
-		}*/
-		
-		std::string msg=oss.str();
-		DLOG("%s",msg.c_str());
-		return oldsub6047A9(this,0,buff,length,a4,a5,a6);
-	}
-};
 
 
 static void doRegister(){
 	LONG error;
 	DetourTransactionBegin();
 	DetourUpdateThread( GetCurrentThread() );
-	//DetourAttach( &(PVOID &)pAVMPI_reserveMemoryRegion,myAVMPI_reserveMemoryRegion);
-	DetourAttach( &(PVOID &)oldfunc,(PVOID)(&(PVOID&) A::newfunc));
 
-	DetourAttach( &(PVOID &)oldfunc7B2DCE ,(PVOID)(&(PVOID&) C00B4F30C::func7B2DCE));
-	DetourAttach( &(PVOID &)oldfunc7A9357,(PVOID)(&(PVOID&) C00B4F30C::func7A9357));
-
-	DetourAttach( &(PVOID &)oldfunc5DCFFE,(PVOID)(&(PVOID&) C00B0C408::func5DCFFE));
-	DetourAttach( &(PVOID &)oldfunc7A1A22,(PVOID)(&(PVOID&) C00B4C820::func7A1A22));
-	//DetourAttach( &(PVOID &)oldfunc7A1B9E,(PVOID)(&(PVOID&) C00B4C820::func7A1B9E));
+	//DetourAttach( &(PVOID &)oldfunc,(PVOID)(&(PVOID&) A::newfunc));
 	
-	DetourAttach( &(PVOID &)oldsub6047A9,(PVOID)(&(PVOID&) C00FB30::sub6047A9));
+	//DetourAttach( &(PVOID &)oldfunc7A6807,(PVOID)(&(PVOID&) C00B4C8E8::func7A6807));	
+	DetourAttach( &(PVOID &)oldfunc7A17EA,(PVOID)(&(PVOID&) C00B4C820::func007A17EA));	
+	DetourAttach( &(PVOID &)oldfunc5DD293,(PVOID)(&(PVOID&) C00B0C408::func5DD293));	
+	DetourAttach( &(PVOID &)oldfunc5DCFFE,(PVOID)(&(PVOID&) C00B0C408::func5DCFFE));	
+	DetourAttach( &(PVOID &)oldfunc5DD07D,(PVOID)(&(PVOID&) C00B0C408::func5DD07D));		
 	error=DetourTransactionCommit(); 
 	if(error==NO_ERROR){
-		DLOG("attach to target process ok!");
+		logToFile("{type:\"begin\"}\n");
 	}
 }
 
@@ -368,20 +280,14 @@ static void doUnRegister(){
 	LONG error;
 	DetourTransactionBegin();
 	DetourUpdateThread( GetCurrentThread() );
-	DetourDetach( &(PVOID &)oldsub6047A9,(PVOID)(&(PVOID&) C00FB30::sub6047A9));
-	//DetourDetach( &(PVOID &)oldfunc7A1B9E,(PVOID)(&(PVOID&) C00B4C820::func7A1B9E));
-	DetourDetach( &(PVOID &)oldfunc7A1A22,(PVOID)(&(PVOID&) C00B4C820::func7A1A22));
-	DetourDetach( &(PVOID &)oldfunc5DCFFE,(PVOID)(&(PVOID&) C00B0C408::func5DCFFE));
-
-	DetourDetach( &(PVOID &)oldfunc7A9357,(PVOID)(&(PVOID&) C00B4F30C::func7A9357));
-	DetourDetach( &(PVOID &)oldfunc7B2DCE ,(PVOID)(&(PVOID&) C00B4F30C::func7B2DCE));
-	
-
-	DetourDetach( &(PVOID &)oldfunc,(PVOID)(&(PVOID&) A::newfunc));
-	//DetourDetach( &(PVOID &)pAVMPI_reserveMemoryRegion,myAVMPI_reserveMemoryRegion);
-	//DetourDetach(  &(PVOID &)oldfunc,(PVOID)(&(PVOID&) A::newfunc));		
+	//DetourDetach( &(PVOID &)oldfunc7A6807,(PVOID)(&(PVOID&) C00B4C8E8::func7A6807));
+	DetourDetach( &(PVOID &)oldfunc7A17EA,(PVOID)(&(PVOID&) C00B4C820::func007A17EA));	
+	DetourDetach( &(PVOID &)oldfunc5DD293,(PVOID)(&(PVOID&) C00B0C408::func5DD293));	
+	DetourDetach( &(PVOID &)oldfunc5DCFFE,(PVOID)(&(PVOID&) C00B0C408::func5DCFFE));	
+	DetourDetach( &(PVOID &)oldfunc5DD07D,(PVOID)(&(PVOID&) C00B0C408::func5DD07D));	
+	//DetourDetach( &(PVOID &)oldfunc,(PVOID)(&(PVOID&) A::newfunc));
 	error=DetourTransactionCommit(); 
-	DLOG("detach ok!");
+	logToFile("{type:\"end\"}\n");
 }
 
 BOOL APIENTRY DllMain( HMODULE hModule,
