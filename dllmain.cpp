@@ -1,4 +1,7 @@
 ﻿#define NOMINMAX
+
+#include <winsock2.h>
+#include <ws2tcpip.h>
 #include <Windows.h>
 #include <detours.h>
 #include <iostream>
@@ -13,9 +16,23 @@
 #pragma comment( lib, "detours.lib" )
 FILE* logfile;
 
-static void logToFile(const char* s)
+
+const char* monthStr[]={"Jan", "Feb", "Mar", "Apr",       "May", "Jun", "Jul", "Aug",       "Sep", "Oct", "Nov", "Dec"};
+static void logToFile(const std::string& type, const std::string& data)
 {
-	fprintf(logfile, "%s", s);
+	__time64_t long_time;
+	_time64( &long_time ); 
+	struct tm t;
+	errno_t err = _localtime64_s( &t, &long_time );
+	if (err){
+		fprintf(logfile, "cannot get current time");		
+		return;
+	}
+	std::ostringstream oss;	
+	oss<<"{time:\""<<monthStr[t.tm_mon]<<" "<<t.tm_mday<<", "<<(t.tm_year+1900)<<" "<<t.tm_hour<<":"<<t.tm_min<<":"<<t.tm_sec<<"\"";
+	oss<<",type: \""<<type<<"\",data: {"<<data<<"}}\n";
+	std::string msg=oss.str();
+	fwrite(msg.c_str(),1,msg.length(),logfile);
 	fflush(logfile);
 }
 
@@ -62,7 +79,7 @@ static std::string jsonArray(const uint8_t* buff,int length){
 __declspec(dllexport) void __cdecl dummyfunc(void){
 
 }
-/*
+
 char  (__fastcall *oldfunc)(void* pthis,int dummy,const unsigned char *key, int keyType, int direction)=(char  (__fastcall *)(void* pthis,int dummy,const unsigned char *key, int keyType, int direction))0x7AE1E1;
 
 class A{
@@ -88,13 +105,12 @@ public:
 		}
 		keylength=keylength/8;
 		std::ostringstream oss;
-		oss<<"{type:\"key\",data:{key: "<<hexBuffer(key,keylength)<<",direction:"<<direction<<"}}\n";
-		std::string msg=oss.str();
-		logToFile(msg.c_str());		
+		oss<<"key: "<<jsonArray(key,keylength)<<",direction:"<<direction;
+		logToFile("keyinfo",oss.str());	
 		char ret=oldfunc(this,0,key,keyType,direction);		
 		return ret;
 	}
-};*/
+};
 
 class C00B4F258{
 
@@ -113,6 +129,7 @@ public:
 	MyBuffer b3;
 	MyBuffer b4;
 
+	/*
 	 char func7A6807(char *dhpublicnumber, unsigned int length){
 		int ret=oldfunc7A6807(this,0,dhpublicnumber,length);
 		std::ostringstream oss;
@@ -120,7 +137,7 @@ public:
 		std::string msg=oss.str();
 		logToFile(msg.c_str());
 		return ret;
-	 }
+	 }*/
 };
 
 int (__fastcall  *oldfunc7A17EA)(void* pthis,int dummy,uint8_t *dhpublicnumber, int length, int keyType)=
@@ -156,17 +173,16 @@ public:
 
 	char func007A17EA(uint8_t *dhpublicnumber, int length, int keyType){
 		std::ostringstream oss;
-		oss<<"{type: \"secinfo\",data: {dhpublicnumber:"<<jsonArray(dhpublicnumber,length)
+		oss<<"dhpublicnumber:"<<jsonArray(dhpublicnumber,length)
 		<<",initiatorCert:"<<jsonArray(this->initiatorNonce->data,this->initiatorNonce->length)
 		<<",responderCert:"<<jsonArray(this->responderNonce->data,this->responderNonce->length)
 		<<",dhprime:"<<jsonArray(this->info->b1.data,this->info->b1.length)
 		<<",dhprivatekey:"<<jsonArray(this->info->b2.data,this->info->b2.length);
 		char ret=oldfunc7A17EA(this,0,dhpublicnumber,length,keyType);
 		oss<<",farNonce:"<<jsonArray(this->farNonce,sizeof(this->farNonce))
-			<<",nearNonce:"<<jsonArray(this->nearNonce,sizeof(this->nearNonce))
-			<<"}}\n";
+			<<",nearNonce:"<<jsonArray(this->nearNonce,sizeof(this->nearNonce));
 		std::string msg=oss.str();
-		logToFile(msg.c_str());
+		logToFile("secinfo",msg.c_str());
 		
 		return ret;
 	}
@@ -191,27 +207,25 @@ int (__fastcall  *oldfunc5DD293)(void* pthis,int dummy,uint8_t *buf, int len, in
 	(int (__fastcall *)(void* pthis,int dummy,uint8_t *buf, int len, int port, int addressFamily))0x005DD293;
 
 
-void logerror(const std::string& msg){
+void logerror(const char* file,long line,const std::string& msg){
 	std::ostringstream oss;
-	oss<<"{type: \"error\",data: {error:\""<<msg<<"\"}}";
+	oss<<"error:\""<<msg<<"\",file: \""<<file<<"\",line: "<<line;
 	std::string err=oss.str();
-	logToFile(err.c_str());
+	logToFile("error",err.c_str());
 }
+
+#define LOG_ERROR(msg) {logerror(__FILE__,__LINE__,msg);}
+
 class C00B0C408{
 	int vtable;
 	int ref;
 	int socket;
 public:	
 	int func5DD293(uint8_t *buf, int len, int port, int addressFamily){
-		std::ostringstream oss;
-		oss<<"{type:\"send2\",data:";
-		oss<<"{socket:"<<this->socket<<",port:"<<port<<",addressFamily:"<<addressFamily<<",data: \"";
-		oss<<std::hex<<std::uppercase;
-		for(int i=0;i!=len;++i)
-			oss<<hexchar(buf[i]>>4)<<hexchar(buf[i]&0xF);
-		oss<<"\"}}\n";
+		std::ostringstream oss;		
+		oss<<"socket:"<<this->socket<<",port:"<<port<<",addressFamily:"<<addressFamily<<",data: "<<jsonArray(buf,len);		
 		std::string msg=oss.str();
-		logToFile(msg.c_str());
+		logToFile("send2",msg);
 		return oldfunc5DD293(this,0,buf,len,port,addressFamily);
 	}
 
@@ -219,40 +233,38 @@ public:
 		sockaddr* addr=(sockaddr*)a4->buffer;
 		if(addr->sa_family==AF_INET){
 			sockaddr_in* inaddr=(sockaddr_in*)addr;
+			std::ostringstream oss;			
+			oss<<"socket:"<<this->socket<<",addr:\""<<inet_ntoa(inaddr->sin_addr)<<"\",port:"<<(unsigned short)ntohs(inaddr->sin_port)<<",data: "<<jsonArray(buf,len);				
+			logToFile("send",oss.str());
+		} else if(addr->sa_family==AF_INET6){
+			char ipstringbuffer[46];
+			struct sockaddr_in6* sockaddr_ipv6 = (struct sockaddr_in6 *) addr;
+			InetNtopA(AF_INET6, &sockaddr_ipv6->sin6_addr, ipstringbuffer, 46);
+			std::ostringstream oss;			
+			oss<<"socket:"<<this->socket<<",addr:\""<< ipstringbuffer<<"\",port:"<<(unsigned short)ntohs(sockaddr_ipv6->sin6_port)<<",data: "<<jsonArray(buf,len);				
+			logToFile("send",oss.str());			
+		} else {
 			std::ostringstream oss;
-			oss<<"{type:\"send\",data:";
-			oss<<"{socket:"<<this->socket<<",addr:\""<<inet_ntoa(inaddr->sin_addr)<<"\",port:"<<(unsigned short)ntohs(inaddr->sin_port)<<",data: \"";
-			oss<<std::hex<<std::uppercase;
-			for(int i=0;i!=len;++i)
-				oss<<hexchar(buf[i]>>4)<<hexchar(buf[i]&0xF);
-			oss<<"\"}}\n";
-			std::string msg=oss.str();
-			logToFile(msg.c_str());
-		}else {
-			logerror("Unknown protocol");
+			oss<<"Unknown protocol :"<<addr->sa_family;
+			LOG_ERROR(oss.str());
 		}	
 		return oldfunc5DD07D(this,0,buf,len,a4);
+	}	
+	int func5DCFFE(uint8_t *buf, int len, C00AFE190* a4){
+		int ret=oldfunc5DCFFE(this,0,buf,len,a4);	
+		if(ret>0){
+			sockaddr* addr=(sockaddr*)a4->buffer;
+			if(addr->sa_family==AF_INET){
+				sockaddr_in* inaddr=(sockaddr_in*)addr;
+				std::ostringstream oss;
+				oss<<"socket:"<<this->socket<<",addr:\""<<inet_ntoa(inaddr->sin_addr)<<"\",port:"<<(unsigned short)ntohs(inaddr->sin_port)<<",data: "<<jsonArray(buf,ret);	
+				logToFile("recv",oss.str());
+			} else {
+				LOG_ERROR("Unknown protocol");
+			}			
+		}
+		return ret;
 	}
-
-	 int func5DCFFE(uint8_t *buf, int len, C00AFE190* a4){
-		 int ret=oldfunc5DCFFE(this,0,buf,len,a4);		 
-		 sockaddr* addr=(sockaddr*)a4->buffer;
-		 if(addr->sa_family==AF_INET){
-			 sockaddr_in* inaddr=(sockaddr_in*)addr;
-			 std::ostringstream oss;
-			 oss<<"{type:\"recv\",data:";
-			 oss<<"{socket:"<<this->socket<<",addr:\""<<inet_ntoa(inaddr->sin_addr)<<"\",port:"<<(unsigned short)ntohs(inaddr->sin_port)<<",data: \"";
-			 oss<<std::hex<<std::uppercase;
-			 for(int i=0;i!=ret;++i)
-				 oss<<hexchar(buf[i]>>4)<<hexchar(buf[i]&0xF);
-			 oss<<"\"}}\n";
-			 std::string msg=oss.str();
-			 logToFile(msg.c_str());
-		 } else {
-			 logerror("Unknown protocol");
-		 }				
-		 return ret;
-	 }
 };
 
 
@@ -263,7 +275,7 @@ static void doRegister(){
 	DetourTransactionBegin();
 	DetourUpdateThread( GetCurrentThread() );
 
-	//DetourAttach( &(PVOID &)oldfunc,(PVOID)(&(PVOID&) A::newfunc));
+	DetourAttach( &(PVOID &)oldfunc,(PVOID)(&(PVOID&) A::newfunc));
 	
 	//DetourAttach( &(PVOID &)oldfunc7A6807,(PVOID)(&(PVOID&) C00B4C8E8::func7A6807));	
 	DetourAttach( &(PVOID &)oldfunc7A17EA,(PVOID)(&(PVOID&) C00B4C820::func007A17EA));	
@@ -272,7 +284,7 @@ static void doRegister(){
 	DetourAttach( &(PVOID &)oldfunc5DD07D,(PVOID)(&(PVOID&) C00B0C408::func5DD07D));		
 	error=DetourTransactionCommit(); 
 	if(error==NO_ERROR){
-		logToFile("{type:\"begin\"}\n");
+		logToFile("begin","");
 	}
 }
 
@@ -285,9 +297,9 @@ static void doUnRegister(){
 	DetourDetach( &(PVOID &)oldfunc5DD293,(PVOID)(&(PVOID&) C00B0C408::func5DD293));	
 	DetourDetach( &(PVOID &)oldfunc5DCFFE,(PVOID)(&(PVOID&) C00B0C408::func5DCFFE));	
 	DetourDetach( &(PVOID &)oldfunc5DD07D,(PVOID)(&(PVOID&) C00B0C408::func5DD07D));	
-	//DetourDetach( &(PVOID &)oldfunc,(PVOID)(&(PVOID&) A::newfunc));
+	DetourDetach( &(PVOID &)oldfunc,(PVOID)(&(PVOID&) A::newfunc));
 	error=DetourTransactionCommit(); 
-	logToFile("{type:\"end\"}\n");
+	logToFile("end","");
 }
 
 BOOL APIENTRY DllMain( HMODULE hModule,
