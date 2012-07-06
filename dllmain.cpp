@@ -281,12 +281,16 @@ static void doRegister(){
 	DetourTransactionBegin();
 	DetourUpdateThread( GetCurrentThread() );
 
+	//记录key
 	DetourAttach( &(PVOID &)oldfunc,(PVOID)(&(PVOID&) C00B4F258::newfunc));
 	
-	//DetourAttach( &(PVOID &)oldfunc7A6807,(PVOID)(&(PVOID&) C00B4C8E8::func7A6807));	
+	//计算AES key
 	DetourAttach( &(PVOID &)oldfunc7A17EA,(PVOID)(&(PVOID&) C00B4C820::func007A17EA));	
+	//发送局域网UDP广播
 	DetourAttach( &(PVOID &)oldfunc5DD293,(PVOID)(&(PVOID&) C00B0C408::func5DD293));	
+	//收到UDP包
 	DetourAttach( &(PVOID &)oldfunc5DCFFE,(PVOID)(&(PVOID&) C00B0C408::func5DCFFE));	
+	//发送UDP包
 	DetourAttach( &(PVOID &)oldfunc5DD07D,(PVOID)(&(PVOID&) C00B0C408::func5DD07D));		
 	error=DetourTransactionCommit(); 
 	if(error==NO_ERROR){
