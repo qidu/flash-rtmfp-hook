@@ -1,6 +1,32 @@
 ﻿#include "mybuffer.h"
 
 
+size_t  write7bitInt(uint64_t value, void *dest){
+	uint64_t v2; 
+	size_t v3;
+	signed int v4;
+	char source[12]; 
+
+	v2 = value;
+	v3 = 0;
+	v4 = 10;
+	do
+	{
+		--v4;
+
+		if ( v3 )
+			source[v4] = v2 & 0x7F | 0x80;
+		else 
+			source[v4] = v2 & 0x7F;
+		v2 >>= 7;		
+		++v3;
+	}
+	while ( v2 && v3 < 10 );
+	if ( dest )
+		memmove(dest, &source[v4], v3);
+	return v3;
+}
+
 // 往outVar中写入读到的值。return读了多少个字节
 int  readVarLength(uint8_t *buffer, uint32_t *outVar, uint8_t *bufferEnd)
 {

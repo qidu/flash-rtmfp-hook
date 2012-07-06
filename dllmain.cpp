@@ -16,36 +16,46 @@
 #pragma comment( lib, "detours.lib" )
 FILE* logfile;
 
+/** 12个月份的缩写 */
+const char* monthStr[]={"Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug","Sep", "Oct", "Nov", "Dec"};
 
-const char* monthStr[]={"Jan", "Feb", "Mar", "Apr",       "May", "Jun", "Jul", "Aug",       "Sep", "Oct", "Nov", "Dec"};
+
+
+/**
+ * @param type 日志的类型，可以是任何字符串，不含双引号
+ * @param data 日志的内容
+ */
 static void logToFile(const std::string& type, const std::string& data)
 {
-	__time64_t long_time;
-	_time64( &long_time ); 
-	struct tm t;
-	errno_t err = _localtime64_s( &t, &long_time );
-	if (err){
-		fprintf(logfile, "cannot get current time");		
-		return;
-	}
+
+	SYSTEMTIME st, lt;
+	GetSystemTime(&st);	
+	GetLocalTime(&lt);	
 	std::ostringstream oss;	
-	oss<<"{time:\""<<monthStr[t.tm_mon]<<" "<<t.tm_mday<<", "<<(t.tm_year+1900)<<" "<<t.tm_hour<<":"<<t.tm_min<<":"<<t.tm_sec<<"\"";
+	oss<<"{time:\""<<monthStr[lt.wMonth-1]<<" "<<lt.wDay<<", "<<lt.wYear<<" "<<lt.wHour<<":"<<lt.wMinute<<":"<<lt.wSecond<<"."<<lt.wMilliseconds<<"\"";
 	oss<<",type: \""<<type<<"\",data: {"<<data<<"}}\n";
 	std::string msg=oss.str();
 	fwrite(msg.c_str(),1,msg.length(),logfile);
 	fflush(logfile);
 }
 
+/**
+ * 打开日志文件
+ * @filename
+ */
 void initLogFile(const char* filename){
 	logfile=fopen(filename,"a+");	
 }
 
-
+/**
+ * 关闭日志文件 
+ */
 void closeLogFile(){	
 	if(logfile!=NULL)
 		fclose(logfile);
 }
 
+/*
 static char hexchar(uint8_t value){
 	static char str[]="0123456789abcdef";
 	if(value>=16) throw std::runtime_error("internal error");
@@ -60,7 +70,7 @@ static std::string hexBuffer(const uint8_t* buff,int length){
 		oss<<hexchar(buff[i]>>4)<<hexchar(buff[i]&0xF);
 	oss<<"\"";
 	return oss.str();
-}
+}*/
 
 static std::string jsonArray(const uint8_t* buff,int length){
 	std::ostringstream oss;
@@ -82,7 +92,11 @@ __declspec(dllexport) void __cdecl dummyfunc(void){
 
 char  (__fastcall *oldfunc)(void* pthis,int dummy,const unsigned char *key, int keyType, int direction)=(char  (__fastcall *)(void* pthis,int dummy,const unsigned char *key, int keyType, int direction))0x7AE1E1;
 
-class A{
+
+/**
+ * CCMEAESContext
+ */
+class C00B4F258{
 public:		
 	char newfunc(const unsigned char *key, int keyType, int direction){
 		size_t keylength;
@@ -112,9 +126,7 @@ public:
 	}
 };
 
-class C00B4F258{
 
-};
 
 char (__fastcall  *oldfunc7A6807)(void* pthis,int dummy,char *dhpublicnumber, unsigned int length)=
 	(char (__fastcall*)(void* pthis,int dummy,char *dhpublicnumber, unsigned int length))0x007A6807;
@@ -144,7 +156,9 @@ int (__fastcall  *oldfunc7A17EA)(void* pthis,int dummy,uint8_t *dhpublicnumber, 
 	(int (__fastcall  *)(void* pthis,int dummy,uint8_t *dhpublicnumber, int length, int keyType))0x007A17EA;
 
 
-
+/**
+ * RTMFP::CCMECryptoKey
+ */
 class C00B4C820{
 public:
 	int vtable;
@@ -188,7 +202,9 @@ public:
 	}
 };
 
-
+/**
+ * 地址信息
+ */
 class C00AFE190{
 public:
 	int vtable;
@@ -216,6 +232,9 @@ void logerror(const char* file,long line,const std::string& msg){
 
 #define LOG_ERROR(msg) {logerror(__FILE__,__LINE__,msg);}
 
+/**
+ * 网络管理器
+ */
 class C00B0C408{
 	int vtable;
 	int ref;
@@ -231,37 +250,24 @@ public:
 
 	int func5DD07D(uint8_t *buf, int len, C00AFE190* a4){
 		sockaddr* addr=(sockaddr*)a4->buffer;
-		if(addr->sa_family==AF_INET){
-			sockaddr_in* inaddr=(sockaddr_in*)addr;
-			std::ostringstream oss;			
-			oss<<"socket:"<<this->socket<<",addr:\""<<inet_ntoa(inaddr->sin_addr)<<"\",port:"<<(unsigned short)ntohs(inaddr->sin_port)<<",data: "<<jsonArray(buf,len);				
-			logToFile("send",oss.str());
-		} else if(addr->sa_family==AF_INET6){
-			char ipstringbuffer[46];
-			struct sockaddr_in6* sockaddr_ipv6 = (struct sockaddr_in6 *) addr;
-			InetNtopA(AF_INET6, &sockaddr_ipv6->sin6_addr, ipstringbuffer, 46);
-			std::ostringstream oss;			
-			oss<<"socket:"<<this->socket<<",addr:\""<< ipstringbuffer<<"\",port:"<<(unsigned short)ntohs(sockaddr_ipv6->sin6_port)<<",data: "<<jsonArray(buf,len);				
-			logToFile("send",oss.str());			
-		} else {
-			std::ostringstream oss;
-			oss<<"Unknown protocol :"<<addr->sa_family;
-			LOG_ERROR(oss.str());
-		}	
+		char ipstringbuffer[128];
+		DWORD ipstringbufferLength=128;
+		WSAAddressToStringA(addr,a4->addrlen,NULL,ipstringbuffer,&ipstringbufferLength);
+		std::ostringstream oss;			
+		oss<<"socket:"<<this->socket<<",addr:\""<<ipstringbuffer<<"\",data: "<<jsonArray(buf,len);				
+		logToFile("send",oss.str());
 		return oldfunc5DD07D(this,0,buf,len,a4);
 	}	
 	int func5DCFFE(uint8_t *buf, int len, C00AFE190* a4){
 		int ret=oldfunc5DCFFE(this,0,buf,len,a4);	
 		if(ret>0){
 			sockaddr* addr=(sockaddr*)a4->buffer;
-			if(addr->sa_family==AF_INET){
-				sockaddr_in* inaddr=(sockaddr_in*)addr;
-				std::ostringstream oss;
-				oss<<"socket:"<<this->socket<<",addr:\""<<inet_ntoa(inaddr->sin_addr)<<"\",port:"<<(unsigned short)ntohs(inaddr->sin_port)<<",data: "<<jsonArray(buf,ret);	
-				logToFile("recv",oss.str());
-			} else {
-				LOG_ERROR("Unknown protocol");
-			}			
+			char ipstringbuffer[128];
+			DWORD ipstringbufferLength=128;
+			WSAAddressToStringA(addr,a4->addrlen,NULL,ipstringbuffer,&ipstringbufferLength);
+			std::ostringstream oss;
+			oss<<"socket:"<<this->socket<<",addr:\""<<ipstringbuffer<<"\",data: "<<jsonArray(buf,ret);	
+			logToFile("recv",oss.str());			
 		}
 		return ret;
 	}
@@ -275,7 +281,7 @@ static void doRegister(){
 	DetourTransactionBegin();
 	DetourUpdateThread( GetCurrentThread() );
 
-	DetourAttach( &(PVOID &)oldfunc,(PVOID)(&(PVOID&) A::newfunc));
+	DetourAttach( &(PVOID &)oldfunc,(PVOID)(&(PVOID&) C00B4F258::newfunc));
 	
 	//DetourAttach( &(PVOID &)oldfunc7A6807,(PVOID)(&(PVOID&) C00B4C8E8::func7A6807));	
 	DetourAttach( &(PVOID &)oldfunc7A17EA,(PVOID)(&(PVOID&) C00B4C820::func007A17EA));	
@@ -297,7 +303,7 @@ static void doUnRegister(){
 	DetourDetach( &(PVOID &)oldfunc5DD293,(PVOID)(&(PVOID&) C00B0C408::func5DD293));	
 	DetourDetach( &(PVOID &)oldfunc5DCFFE,(PVOID)(&(PVOID&) C00B0C408::func5DCFFE));	
 	DetourDetach( &(PVOID &)oldfunc5DD07D,(PVOID)(&(PVOID&) C00B0C408::func5DD07D));	
-	DetourDetach( &(PVOID &)oldfunc,(PVOID)(&(PVOID&) A::newfunc));
+	DetourDetach( &(PVOID &)oldfunc,(PVOID)(&(PVOID&) C00B4F258::newfunc));
 	error=DetourTransactionCommit(); 
 	logToFile("end","");
 }
