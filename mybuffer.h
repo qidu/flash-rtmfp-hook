@@ -8,6 +8,7 @@ extern int readVarInt64(const uint8_t *beginptr, uint64_t * outvalue, const uint
 extern int readVarInt32(const uint8_t *a1, uint32_t* a2, const uint8_t *a3);
 extern int readVarLength(uint8_t *buffer, uint32_t *outVar, uint8_t *bufferEnd);
 
+
 class MyBuffer {
 public:
 	int vtable;
